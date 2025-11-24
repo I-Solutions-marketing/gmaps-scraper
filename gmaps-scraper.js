@@ -26,7 +26,6 @@
     alert("✔ All Google Maps Scraper data has been fully reset.\nReload the page and click the bookmarklet again.");
   }
 
-  // Create UI wrapper
   function createOverlay(html) {
     const existing = document.getElementById("gmaps-scraper-overlay");
     if (existing) existing.remove();
@@ -49,14 +48,12 @@
     overlay.innerHTML = html;
     document.body.appendChild(overlay);
 
-    // Hook force reset button
     const forceBtn = overlay.querySelector("#gmaps-scraper-force-reset");
     if (forceBtn) forceBtn.onclick = fullReset;
 
     return overlay;
   }
 
-  // UI: Initial
   function createInitialUI() {
     const html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -65,8 +62,7 @@
       </div>
 
       <div style="margin-bottom:8px;">Paste Google Maps business URLs (one per line):</div>
-      <textarea id="gmaps-scraper-urls"
-        style="width:100%;height:150px;font-size:12px;"></textarea>
+      <textarea id="gmaps-scraper-urls" style="width:100%;height:150px;font-size:12px;"></textarea>
 
       <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
         <button id="gmaps-scraper-start"
@@ -82,7 +78,7 @@
 
       <div style="margin-top:8px;color:#555;font-size:11px;">
         Workflow: paste URLs → click <b>Start Sequence</b>.<br>
-        Then on each page, click the bookmarklet again to scrape + auto-continue.
+        Then on each page, click the bookmarklet again to scrape and advance.
       </div>
     `;
 
@@ -97,12 +93,7 @@
       const urls = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       if (!urls.length) return alert("No valid URLs found.");
 
-      const state = {
-        urls,
-        currentIndex: 0,
-        results: [],
-        done: false
-      };
+      const state = { urls, currentIndex: 0, results: [], done: false };
       saveState(state);
 
       alert("Sequence started! Navigating to the first URL...");
@@ -110,7 +101,6 @@
     };
   }
 
-  // Scrape Google Maps Page
   function scrapeCurrentPage() {
     let businessName = "";
     let website = "";
@@ -118,25 +108,52 @@
     let email = "";
 
     try {
-      const nameEl = document.querySelector("h1 span") ||
-                     document.querySelector("h1") ||
-                     document.querySelector("[role='heading'] span");
-      if (nameEl) businessName = nameEl.textContent.trim();
+      const newUIName =
+        document.querySelector('h1[class*="DUwDvf"] span') ||
+        document.querySelector('h1[class*="DUwDvf"]') ||
+        document.querySelector('div[data-attrid="title"] span');
+
+      if (newUIName && newUIName.textContent.trim()) {
+        businessName = newUIName.textContent.trim();
+      }
+    } catch (e) {}
+
+    if (!businessName) {
+      try {
+        const oldUIName =
+          document.querySelector("h1 span") ||
+          document.querySelector("h1") ||
+          document.querySelector('[role=\"heading\"] span') ||
+          document.querySelector('[aria-level=\"1\"] span');
+
+        if (oldUIName && oldUIName.textContent.trim()) {
+          businessName = oldUIName.textContent.trim();
+        }
+      } catch (e) {}
+    }
+
+    if (!businessName) {
+      try {
+        const og = document.querySelector('meta[property="og:title"]');
+        if (og && og.content) {
+          businessName = og.content.split("·")[0].trim();
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const w = document.querySelector("a[data-item-id='authority']");
+      if (w) website = w.href.trim();
     } catch (e) {}
 
     try {
-      const websiteEl = document.querySelector("a[data-item-id='authority']");
-      if (websiteEl) website = websiteEl.href.trim();
+      const p = document.querySelector("button[data-item-id^='phone:tel']");
+      if (p) phone = p.textContent.trim();
     } catch (e) {}
 
     try {
-      const phoneEl = document.querySelector("button[data-item-id^='phone:tel']");
-      if (phoneEl) phone = phoneEl.textContent.trim();
-    } catch (e) {}
-
-    try {
-      const emailEl = document.querySelector("a[href^='mailto:']");
-      if (emailEl) email = emailEl.href.replace(/^mailto:/i, "").trim();
+      const em = document.querySelector("a[href^='mailto:']");
+      if (em) email = em.href.replace(/^mailto:/i, "").trim();
     } catch (e) {}
 
     return {
@@ -149,11 +166,7 @@
     };
   }
 
-  // UI: Progress screen
   function createProgressUI(state) {
-    const total = state.urls.length;
-    const idx = state.currentIndex;
-
     const html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <div style="font-weight:bold;font-size:14px;">Google Maps Scraper</div>
@@ -161,9 +174,9 @@
           style="border:none;background:none;font-size:14px;cursor:pointer;">✕</button>
       </div>
 
-      <div>Progress: <b>${state.results.length}</b> of <b>${total}</b></div>
+      <div>Progress: <b>${state.results.length}</b> of <b>${state.urls.length}</b></div>
       <div style="font-size:11px;color:#555;margin-top:4px;">
-        Current: <b>${idx + 1}</b> / ${total}<br>
+        Current: <b>${state.currentIndex + 1}</b> / ${state.urls.length}<br>
         Click the bookmarklet again to continue.
       </div>
 
@@ -177,7 +190,6 @@
     overlay.querySelector("#gmaps-scraper-close").onclick = () => overlay.remove();
   }
 
-  // UI: Done
   function createDoneUI(state) {
     const html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -214,16 +226,18 @@
         ])
       ];
 
-      const csv = rows.map(row =>
-        row
-          .map(field => {
-            const s = String(field || "");
-            return s.includes(",") || s.includes('"')
-              ? `"${s.replace(/"/g, '""')}"`
-              : s;
-          })
-          .join(",")
-      ).join("\r\n");
+      const csv = rows
+        .map(row =>
+          row
+            .map(field => {
+              const s = String(field || "");
+              return s.includes(",") || s.includes('"')
+                ? `"${s.replace(/"/g, '""')}"`
+                : s;
+            })
+            .join(",")
+        )
+        .join("\r\n");
 
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
@@ -239,29 +253,26 @@
     };
   }
 
-  //
-  // MAIN EXECUTION
-  //
   const state = loadState();
 
-  // No sequence → initial UI
   if (!state || !state.urls || !Array.isArray(state.urls) || state.urls.length === 0) {
     createInitialUI();
     return;
   }
 
-  // If done → show done UI
   if (state.done) {
     createDoneUI(state);
     return;
   }
 
-  // Scrape current page
   const currentIndex = state.currentIndex;
   const row = scrapeCurrentPage();
-  state.results.push(row);
 
-  // Advance
+  // NEW: prevent duplicate rows
+  if (!state.results.some(r => r.url === row.url)) {
+    state.results.push(row);
+  }
+
   const nextIndex = currentIndex + 1;
 
   if (nextIndex >= state.urls.length) {
